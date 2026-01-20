@@ -3,16 +3,14 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
+using System.Data; // [QUAN TRỌNG] Cần thêm thư viện này để dùng DataTable
 
 namespace TranDangPhuc_2123110510
 {
     public partial class LoginForm : Form
     {
-        // Biến này được để public static để RegisterForm có thể truy cập và thêm dữ liệu vào
-        public static Dictionary<string, string> accounts = new Dictionary<string, string>()
-        {
-            { "admin", "123" } // Tài khoản mặc định
-        };
+        // [XÓA] Không dùng Dictionary tĩnh nữa vì đã có Database
+        // public static Dictionary<string, string> accounts ...
 
         private Image eyeIcon;
         private Image eyeOffIcon;
@@ -71,7 +69,6 @@ namespace TranDangPhuc_2123110510
             string path = Application.StartupPath;
             try
             {
-                // Đảm bảo bạn đã copy file eye.png và eye-off.png vào thư mục bin/Debug/...
                 if (File.Exists(Path.Combine(path, "eye.png")))
                     eyeIcon = Image.FromFile(Path.Combine(path, "eye.png"));
 
@@ -81,7 +78,6 @@ namespace TranDangPhuc_2123110510
                 if (eyeOffIcon != null)
                 {
                     picShowPass.Image = eyeOffIcon;
-                    // Position eye icon
                     picShowPass.Parent = txtPass;
                     picShowPass.Location = new Point(txtPass.Width - picShowPass.Width - 10,
                                                    (txtPass.Height - picShowPass.Height) / 2);
@@ -98,11 +94,13 @@ namespace TranDangPhuc_2123110510
             }
         }
 
+        // --- [SỬA ĐỔI QUAN TRỌNG Ở ĐÂY] ---
         private void btnLogin_Click(object sender, EventArgs e)
         {
             string user = txtUser.Text.Trim();
             string pass = txtPass.Text;
 
+            // 1. Kiểm tra nhập liệu
             if (string.IsNullOrEmpty(user) || string.IsNullOrEmpty(pass))
             {
                 MessageBox.Show("Vui lòng nhập đầy đủ thông tin!", "Thông báo",
@@ -110,33 +108,51 @@ namespace TranDangPhuc_2123110510
                 return;
             }
 
-            // Kiểm tra trong Dictionary chung
-            if ((accounts.ContainsKey(user) && accounts[user] == pass))
+            // 2. [MỚI] Kết nối Database để kiểm tra
+            try
             {
-                MessageBox.Show("Đăng nhập thành công!", "Thông báo",
-                              MessageBoxButtons.OK, MessageBoxIcon.Information);
+                DatabaseUtils db = new DatabaseUtils(); // Gọi class kết nối
 
-                // --- PHẦN CODE MỚI ---
-                this.Hide(); // Ẩn form đăng nhập
-                MenuForm menu = new MenuForm(user); // Truyền tên user vào menu
-                menu.ShowDialog(); // Hiện menu (chờ đến khi menu đóng)
-                this.Show(); // Khi menu đóng (Logout), hiện lại form đăng nhập
-                             // ---------------------
+                // Tạo câu lệnh SQL tìm user và pass tương ứng
+                // Lưu ý: pass nên được mã hóa, nhưng ở đây ta làm đơn giản trước
+                string sql = $"SELECT * FROM Users WHERE Username = '{user}' AND Password = '{pass}'";
+
+                // Lấy dữ liệu về
+                DataTable dt = db.GetData(sql);
+
+                // 3. Kiểm tra kết quả
+                if (dt.Rows.Count > 0)
+                {
+                    // Có tìm thấy tài khoản -> Đăng nhập thành công
+                    MessageBox.Show("Đăng nhập thành công!", "Thông báo",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    this.Hide(); // Ẩn form Login
+
+                    // Mở Form Menu và truyền tên người dùng sang để hiển thị "Xin chào..."
+                    MenuForm menu = new MenuForm(user);
+                    menu.ShowDialog();
+
+                    this.Show(); // Hiện lại Login khi thoát game
+                }
+                else
+                {
+                    // Không tìm thấy dòng nào -> Sai thông tin
+                    MessageBox.Show("Sai tên đăng nhập hoặc mật khẩu!", "Lỗi Đăng Nhập",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                MessageBox.Show("Sai tên đăng nhập hoặc mật khẩu!", "Thông báo",
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Lỗi kết nối: " + ex.Message, "Lỗi Hệ Thống");
             }
         }
 
         private void btnRegister_Click(object sender, EventArgs e)
         {
-            // Ẩn form Login để chuyển sang Register
             this.Hide();
             RegisterForm registerForm = new RegisterForm();
             registerForm.ShowDialog();
-            // Khi RegisterForm đóng lại, hiện lại form Login
             this.Show();
         }
 

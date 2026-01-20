@@ -2,59 +2,70 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using System.Data;
 
 namespace TranDangPhuc_2123110510
 {
-    // Enum trạng thái game
     public enum GameState { Menu, Playing, GameOver }
-
-    // Enum độ khó
     public enum Difficulty { Easy, Medium, Hard }
 
     public partial class Form31 : Form
     {
-        // --- TRẠNG THÁI HỆ THỐNG ---
         private GameState currentState = GameState.Menu;
         private Difficulty currentDifficulty = Difficulty.Easy;
         private Random rand = new Random();
+        private string currentPlayer;
 
-        // [MỚI] Biến theo dõi vị trí menu đang chọn (0, 1, 2)
+        // Menu 4 mục: 0:Easy, 1:Medium, 2:Hard, 3:Leaderboard
         private int menuIndex = 0;
 
-        // --- CẤU HÌNH GAME ---
         private int score = 0;
         private int lives = 3;
         private int level = 1;
+        private int highScore = 0; // Biến lưu kỷ lục
 
-        // Các biến điều chỉnh độ khó
         private int chickenSpawnRate = 50;
         private int chickenSpeedBase = 3;
         private int scoreToNextLevel = 100;
         private int spawnCounter = 0;
 
-        // --- CÁC ĐỐI TƯỢNG GAME ---
         private PlayerShip player;
         private List<Bullet> bullets = new List<Bullet>();
         private List<Chicken> chickens = new List<Chicken>();
 
-        // --- INPUT ---
         private bool goLeft, goRight, isShooting;
 
-        public Form31()
+        public Form31(string username)
         {
             InitializeComponent();
 
-            // [QUAN TRỌNG] Phải có dòng này phím mới ăn
+            // Xử lý tên: Cắt bỏ khoảng trắng thừa để tránh lỗi tìm trong SQL
+            this.currentPlayer = username != null ? username.Trim() : "Guest";
+
             this.KeyPreview = true;
 
-            // Bắt đầu game loop
+            // [SỬA LỖI 1] Ẩn các nhãn điểm số khi mới vào (để không đè lên Menu)
+            SetGameUI(false);
+
+            // Tải kỷ lục ngay khi mở game
+            LoadHighScore();
+
             tmGameLoop.Start();
         }
 
-        // --- HÀM KHỞI TẠO GAME MỚI ---
+        // Hàm ẩn/hiện giao diện chơi game
+        private void SetGameUI(bool isPlaying)
+        {
+            lblScore.Visible = isPlaying;
+            lblLives.Visible = isPlaying;
+            lblLevel.Visible = isPlaying;
+
+            // GameOver luôn ẩn khi bắt đầu hoặc vào menu
+            if (isPlaying) lblGameOver.Visible = false;
+        }
+
         private void StartGame()
         {
-            // Set độ khó dựa trên menu đang chọn
             if (menuIndex == 0) currentDifficulty = Difficulty.Easy;
             else if (menuIndex == 1) currentDifficulty = Difficulty.Medium;
             else if (menuIndex == 2) currentDifficulty = Difficulty.Hard;
@@ -67,11 +78,16 @@ namespace TranDangPhuc_2123110510
             level = 1;
             spawnCounter = 0;
 
+            // Tải lại điểm lần nữa cho chắc
+            LoadHighScore();
+
             ApplyDifficultySettings();
 
             currentState = GameState.Playing;
-            lblGameOver.Visible = false;
-            lblLevel.Visible = true;
+
+            // [SỬA LỖI 1] Hiện các nhãn điểm số lên
+            SetGameUI(true);
+
             UpdateUI();
         }
 
@@ -102,7 +118,8 @@ namespace TranDangPhuc_2123110510
 
         private void UpdateUI()
         {
-            lblScore.Text = "Score: " + score;
+            int currentDisplayHigh = (score > highScore) ? score : highScore;
+            lblScore.Text = $"Score: {score}  |  Best: {currentDisplayHigh}";
             lblLives.Text = "Lives: " + lives;
             lblLevel.Text = "Level: " + level;
         }
@@ -113,9 +130,80 @@ namespace TranDangPhuc_2123110510
             lblGameOver.Text = "GAME OVER\nScore: " + score + "\nPress ENTER to Menu";
             lblGameOver.Location = new Point((this.ClientSize.Width - lblGameOver.Width) / 2, 200);
             lblGameOver.Visible = true;
+            SaveHighScore();
         }
 
-        // --- GAME LOOP ---
+        private void SaveHighScore()
+        {
+            if (string.IsNullOrEmpty(currentPlayer) || currentPlayer == "Guest") return;
+            try
+            {
+                DatabaseUtils db = new DatabaseUtils();
+                // Check xem user có tồn tại không
+                string sqlCheck = $"SELECT HighScore FROM Users WHERE Username = '{currentPlayer}'";
+                DataTable dt = db.GetData(sqlCheck);
+
+                if (dt.Rows.Count > 0)
+                {
+                    int currentHighScore = 0;
+                    if (dt.Rows[0]["HighScore"] != DBNull.Value)
+                        currentHighScore = Convert.ToInt32(dt.Rows[0]["HighScore"]);
+
+                    if (score > currentHighScore)
+                    {
+                        string sqlUpdate = $"UPDATE Users SET HighScore = {score} WHERE Username = '{currentPlayer}'";
+                        db.ExecuteQuery(sqlUpdate);
+                        MessageBox.Show($"Kỷ lục mới của {currentPlayer}: {score}!", "Chúc mừng");
+                        highScore = score; // Cập nhật biến local luôn
+                    }
+                }
+            }
+            catch (Exception ex) { Console.WriteLine("Lỗi save: " + ex.Message); }
+        }
+
+        // [SỬA LỖI 2] Hàm đọc điểm (Thêm báo lỗi chi tiết)
+        private void LoadHighScore()
+        {
+            if (string.IsNullOrEmpty(currentPlayer) || currentPlayer == "Guest") return;
+
+            try
+            {
+                DatabaseUtils db = new DatabaseUtils();
+
+                // Kiểm tra kết nối trước
+                if (!db.Connect()) return;
+
+                string sql = $"SELECT HighScore FROM Users WHERE Username = '{currentPlayer}'";
+                DataTable dt = db.GetData(sql);
+
+                if (dt.Rows.Count > 0)
+                {
+                    if (dt.Rows[0]["HighScore"] != DBNull.Value)
+                    {
+                        highScore = Convert.ToInt32(dt.Rows[0]["HighScore"]);
+                    }
+                    else
+                    {
+                        highScore = 0;
+                    }
+                }
+                else
+                {
+                    // Nếu không tìm thấy user này trong bảng Users
+                    // (Có thể do login sai hoặc user bị xóa)
+                    highScore = 0;
+                }
+
+                db.Disconnect();
+            }
+            catch (Exception ex)
+            {
+                // Hiện lỗi để biết tại sao không đọc được
+                MessageBox.Show("Lỗi đọc điểm từ SQL: " + ex.Message);
+                highScore = 0;
+            }
+        }
+
         private void tmGameLoop_Tick(object sender, EventArgs e)
         {
             if (currentState != GameState.Playing)
@@ -124,7 +212,6 @@ namespace TranDangPhuc_2123110510
                 return;
             }
 
-            // Logic Di chuyển & Bắn
             if (goLeft && player.X > 0) player.MoveLeft();
             if (goRight && player.X < this.ClientSize.Width - player.Width) player.MoveRight();
 
@@ -134,7 +221,6 @@ namespace TranDangPhuc_2123110510
                 isShooting = false;
             }
 
-            // Sinh gà
             spawnCounter++;
             if (spawnCounter >= chickenSpawnRate)
             {
@@ -144,18 +230,15 @@ namespace TranDangPhuc_2123110510
                 spawnCounter = 0;
             }
 
-            // Xử lý đạn
             for (int i = bullets.Count - 1; i >= 0; i--)
             {
                 bullets[i].Update();
                 if (bullets[i].IsOutOfBounds) bullets.RemoveAt(i);
             }
 
-            // Xử lý Gà & Va chạm
             for (int i = chickens.Count - 1; i >= 0; i--)
             {
                 chickens[i].Update();
-
                 for (int j = bullets.Count - 1; j >= 0; j--)
                 {
                     if (bullets[j].Bounds.IntersectsWith(chickens[i].Bounds))
@@ -176,10 +259,8 @@ namespace TranDangPhuc_2123110510
                     UpdateUI();
                     if (lives <= 0) GameOver();
                 }
-
             NextChicken: continue;
             }
-
             this.Invalidate();
         }
 
@@ -197,46 +278,64 @@ namespace TranDangPhuc_2123110510
             }
         }
 
-        // [CẬP NHẬT] Vẽ Menu tô màu dòng đang chọn
         private void DrawMenu(Graphics g)
         {
             StringFormat sf = new StringFormat() { Alignment = StringAlignment.Center };
-            g.DrawString("CHICKEN HUNTER", new Font("Segoe UI", 30, FontStyle.Bold), Brushes.Orange, this.ClientSize.Width / 2, 80, sf);
-            g.DrawString("Use UP/DOWN to select, ENTER to Start", new Font("Segoe UI", 12), Brushes.LightGray, this.ClientSize.Width / 2, 140, sf);
+            g.DrawString("CHICKEN HUNTER", new Font("Segoe UI", 30, FontStyle.Bold), Brushes.Orange, this.ClientSize.Width / 2, 60, sf);
 
-            // Kiểm tra menuIndex để tô màu
-            Brush b1 = (menuIndex == 0) ? Brushes.Lime : Brushes.Gray;
-            Brush b2 = (menuIndex == 1) ? Brushes.Yellow : Brushes.Gray;
-            Brush b3 = (menuIndex == 2) ? Brushes.Red : Brushes.Gray;
+            // [SỬA] Vẽ tên người chơi ở góc TRÊN CÙNG BÊN PHẢI để không bị đè
+            if (!string.IsNullOrEmpty(currentPlayer))
+            {
+                string txt = $"Player: {currentPlayer}";
+                // Đo chiều dài chữ để căn phải
+                SizeF size = g.MeasureString(txt, new Font("Segoe UI", 12, FontStyle.Bold));
+                g.DrawString(txt, new Font("Segoe UI", 12, FontStyle.Bold), Brushes.Cyan, this.ClientSize.Width - size.Width - 20, 20);
+            }
 
-            // Thêm dấu ">" vào trước dòng đang chọn
-            string t1 = (menuIndex == 0 ? "> " : "") + "EASY";
-            string t2 = (menuIndex == 1 ? "> " : "") + "MEDIUM";
-            string t3 = (menuIndex == 2 ? "> " : "") + "HARD";
+            Brush b0 = (menuIndex == 0) ? Brushes.Lime : Brushes.Gray;
+            Brush b1 = (menuIndex == 1) ? Brushes.Yellow : Brushes.Gray;
+            Brush b2 = (menuIndex == 2) ? Brushes.Red : Brushes.Gray;
+            Brush b3 = (menuIndex == 3) ? Brushes.Cyan : Brushes.Gray;
 
-            g.DrawString(t1, new Font("Segoe UI", 24, FontStyle.Bold), b1, this.ClientSize.Width / 2, 220, sf);
-            g.DrawString(t2, new Font("Segoe UI", 24, FontStyle.Bold), b2, this.ClientSize.Width / 2, 280, sf);
-            g.DrawString(t3, new Font("Segoe UI", 24, FontStyle.Bold), b3, this.ClientSize.Width / 2, 340, sf);
+            string t0 = (menuIndex == 0 ? "> " : "") + "EASY";
+            string t1 = (menuIndex == 1 ? "> " : "") + "MEDIUM";
+            string t2 = (menuIndex == 2 ? "> " : "") + "HARD";
+            string t3 = (menuIndex == 3 ? "> " : "") + "VIEW LEADERBOARD";
+
+            Font fontMenu = new Font("Segoe UI", 20, FontStyle.Bold);
+            g.DrawString(t0, fontMenu, b0, this.ClientSize.Width / 2, 180, sf);
+            g.DrawString(t1, fontMenu, b1, this.ClientSize.Width / 2, 240, sf);
+            g.DrawString(t2, fontMenu, b2, this.ClientSize.Width / 2, 300, sf);
+            g.DrawString(t3, new Font("Segoe UI", 16, FontStyle.Bold), b3, this.ClientSize.Width / 2, 380, sf);
+
+            g.DrawString("Use UP/DOWN to select, ENTER to Confirm", new Font("Segoe UI", 10), Brushes.LightGray, this.ClientSize.Width / 2, 450, sf);
         }
 
         private void Form31_KeyDown(object sender, KeyEventArgs e)
         {
             if (currentState == GameState.Menu)
             {
-                // [CẬP NHẬT] Xử lý phím Lên/Xuống
                 if (e.KeyCode == Keys.Up)
                 {
                     menuIndex--;
-                    if (menuIndex < 0) menuIndex = 2; // Vòng xuống dưới cùng
+                    if (menuIndex < 0) menuIndex = 3;
                 }
                 else if (e.KeyCode == Keys.Down)
                 {
                     menuIndex++;
-                    if (menuIndex > 2) menuIndex = 0; // Vòng lên trên cùng
+                    if (menuIndex > 3) menuIndex = 0;
                 }
                 else if (e.KeyCode == Keys.Enter)
                 {
-                    StartGame();
+                    if (menuIndex == 3)
+                    {
+                        LeaderboardForm lb = new LeaderboardForm();
+                        lb.ShowDialog();
+                    }
+                    else
+                    {
+                        StartGame();
+                    }
                 }
             }
             else if (currentState == GameState.Playing)
@@ -249,10 +348,7 @@ namespace TranDangPhuc_2123110510
             {
                 if (e.KeyCode == Keys.Enter)
                 {
-                    currentState = GameState.Menu;
-                    lblGameOver.Visible = false;
-                    lblLevel.Visible = false;
-                    UpdateUI();
+                    this.Close();
                 }
             }
         }
@@ -265,7 +361,7 @@ namespace TranDangPhuc_2123110510
         }
     }
 
-    // --- CÁC CLASS ĐỐI TƯỢNG (Giữ nguyên) ---
+    // --- CÁC CLASS ĐỐI TƯỢNG (ĐẦY ĐỦ) ---
     public abstract class GameObject
     {
         public int X { get; set; }

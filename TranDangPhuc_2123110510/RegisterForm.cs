@@ -3,14 +3,12 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
+using System.Data; // [CẦN THÊM] Thư viện xử lý dữ liệu
 
 namespace TranDangPhuc_2123110510
 {
     public partial class RegisterForm : Form
     {
-        // ĐÃ XÓA: public static Dictionary<string, string> accounts... 
-        // Vì nếu để lại sẽ gây lỗi logic không đồng bộ dữ liệu.
-
         private Image eyeIcon;
         private Image eyeOffIcon;
 
@@ -73,14 +71,12 @@ namespace TranDangPhuc_2123110510
 
                 if (eyeOffIcon != null)
                 {
-                    // Password eye
                     picShowPass.Parent = txtPass;
                     picShowPass.Location = new Point(txtPass.Width - picShowPass.Width - 10,
                                                    (txtPass.Height - picShowPass.Height) / 2);
                     picShowPass.BringToFront();
                     picShowPass.Image = eyeOffIcon;
 
-                    // Confirm password eye
                     picShowConfirm.Parent = txtConfirmPass;
                     picShowConfirm.Location = new Point(txtConfirmPass.Width - picShowConfirm.Width - 10,
                                                       (txtConfirmPass.Height - picShowConfirm.Height) / 2);
@@ -100,12 +96,14 @@ namespace TranDangPhuc_2123110510
             }
         }
 
+        // --- [PHẦN SỬA ĐỔI QUAN TRỌNG: KẾT NỐI DATABASE] ---
         private void btnRegister_Click(object sender, EventArgs e)
         {
             string user = txtUser.Text.Trim();
             string pass = txtPass.Text;
             string confirm = txtConfirmPass.Text;
 
+            // 1. Kiểm tra nhập liệu
             if (string.IsNullOrEmpty(user) || string.IsNullOrEmpty(pass) || string.IsNullOrEmpty(confirm))
             {
                 MessageBox.Show("Vui lòng nhập đầy đủ thông tin!", "Thông báo",
@@ -120,19 +118,42 @@ namespace TranDangPhuc_2123110510
                 return;
             }
 
-            // SỬA LỖI LOGIC TẠI ĐÂY:
-            // Truy cập vào biến accounts của LoginForm thay vì biến cục bộ
-            if (!LoginForm.accounts.ContainsKey(user))
+            // 2. Kết nối Database để đăng ký
+            try
             {
-                LoginForm.accounts.Add(user, pass);
-                MessageBox.Show("Đăng ký thành công!\nBạn có thể đăng nhập ngay bây giờ.", "Thông báo",
-                              MessageBoxButtons.OK, MessageBoxIcon.Information);
-                this.Close(); // Đóng form đăng ký để quay về đăng nhập
+                DatabaseUtils db = new DatabaseUtils();
+
+                // BƯỚC 1: Kiểm tra xem tên đăng nhập đã tồn tại chưa
+                string checkSql = $"SELECT * FROM Users WHERE Username = '{user}'";
+                DataTable dt = db.GetData(checkSql);
+
+                if (dt.Rows.Count > 0)
+                {
+                    MessageBox.Show("Tên đăng nhập đã tồn tại!\nVui lòng chọn tên khác.", "Lỗi",
+                                  MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                else
+                {
+                    // BƯỚC 2: Nếu chưa tồn tại -> Thêm mới vào Database
+                    // (Mặc định điểm HighScore là 0)
+                    string insertSql = $"INSERT INTO Users (Username, Password, HighScore) VALUES ('{user}', '{pass}', 0)";
+
+                    if (db.ExecuteQuery(insertSql))
+                    {
+                        MessageBox.Show("Đăng ký thành công!\nBạn có thể đăng nhập ngay bây giờ.", "Thông báo",
+                                      MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        this.Close(); // Đóng form Đăng ký để quay về Đăng nhập
+                    }
+                    else
+                    {
+                        MessageBox.Show("Đăng ký thất bại do lỗi hệ thống!", "Lỗi",
+                                      MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
             }
-            else
+            catch (Exception ex)
             {
-                MessageBox.Show("Tên đăng nhập đã tồn tại!\nVui lòng chọn tên khác.", "Thông báo",
-                              MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Lỗi kết nối Database: " + ex.Message, "Lỗi Hệ Thống");
             }
         }
 
